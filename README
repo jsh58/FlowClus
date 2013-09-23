@@ -16,14 +16,14 @@ Parameter names are subject to change -- check ./flowclus -h
 
 Usage:
 
-  ./flowclus {-m master.csv} [optional parameters]
+  ./FlowClus {-m master.csv} [optional parameters]
 
 The order of the parameters does not matter.
 
 Parameters specified as "options" below do not require
   arguments.  Other parameters should be followed by the
-  appropriate argument (integer, floating-point value, or
-  string).
+  appropriate type argument (integer, floating-point value,
+  or string).
 
 
 

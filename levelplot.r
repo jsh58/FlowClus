@@ -26,19 +26,18 @@ while (i %% 100 != 0 && i < length(repm[1,])) {
 repm <- repm[1:i,1:i]
 
 # create level boundaries -- based on max value
+div <- 8
 z <- max(repm)
 reg <- c(-0.1, 0.1)
-for (j in 1:7) {
-  reg <- c(reg, z^(j/8))  # logarithmic: eighth powers
+for (j in 1:(div - 1)) {
+  reg <- c(reg, z^(j/div))  # logarithmic: eighth powers
 }
 reg <- c(reg, z + 0.1)
 
 # make arrays for plotting
 int <- seq(from = 0, to = i, by = 100)
-f <- log(reg[3], base = 8)
+f <- log(reg[3], base = div)
 lab <- seq(from = 0, to = f * (length(reg) - 1), by = f)
-
-# make colors using RColorBrewer
 color <- RColorBrewer::brewer.pal(length(reg) - 1, "Blues")
 
 # make levelplot

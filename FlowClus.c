@@ -24,7 +24,7 @@ void freeMemory(void);
  */
 void usage(void) {
   fprintf(stderr, "\n*** For a complete description of the parameters, see the README ***\n");
-  fprintf(stderr, "\nUsage: ./flowclus %s master.csv [optional parameters]\n\n", MASTERFILE);
+  fprintf(stderr, "\nUsage: ./FlowClus %s master.csv [optional parameters]\n\n", MASTERFILE);
   fprintf(stderr, "Required parameters:\n");
   fprintf(stderr, "  %s   Input master file with primer and mid tag sequences\n", MASTERFILE);
   fprintf(stderr, "Optional parameters:\n");

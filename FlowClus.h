@@ -113,7 +113,7 @@
 #define ERRCLOSE   1
 #define MERRCLOSE  "Cannot close file"
 #define ERRPARAM   2
-#define MERRPARAM  ": cannot find parameter"
+#define MERRPARAM  ": cannot find value in sff.txt"
 #define ERRFLOAT   3
 #define MERRFLOAT  ": cannot convert to float"
 #define ERRINT     4
