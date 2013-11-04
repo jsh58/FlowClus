@@ -507,7 +507,8 @@ void makeIrreg(FILE* out, Primer* p, Cluster* c, char* seq,
   int begin;
   int pos = strlen(trim);
   if (opt) {
-    c->flows[0] -= last;
+    c->flows[0] = last > c->flows[0] ? 0.0f :
+      c->flows[0] - last;
     begin = 0;
   } else {
     float v = c->flows[0];
@@ -569,7 +570,8 @@ void makeReads(FILE* out, Primer* p, Cluster* c, char* seq,
   int begin;
   int pos = strlen(trim);
   if (opt) {
-    c->flows[0] -= last;
+    c->flows[0] = last > c->flows[0] ? 0.0f :
+      c->flows[0] - last;
     begin = 0;
   } else {
     float v = c->flows[0];
@@ -1362,7 +1364,8 @@ void printTrie(FILE* out, Primer* p, int len,
 
     // adjust flowgram, primer
     if (midOpt) {
-      n->flow[n->st] -= last;
+      n->flow[n->st] = last > n->flow[n->st] ? 0.0f :
+        n->flow[n->st] - last;
       begin = 0;
     } else {
       float v = n->flow[n->st];
