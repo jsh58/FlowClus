@@ -1,4 +1,4 @@
 FlowClus
 ========
 
-Filters and denoises marker-based metagenomic data
+Filters and denoises pyrosequenced amplicons
