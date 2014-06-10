@@ -1,6 +1,6 @@
 /*
   John M. Gaspar (jsh58@unh.edu)
-  June 2013
+  June 2013 (updated 1/14, 3/14)
 
   This program can both filter and denoise reads
     produced by 454 pyrosequencing.
@@ -28,6 +28,7 @@ void usage(void) {
   fprintf(stderr, "Required parameters:\n");
   fprintf(stderr, "  %s   Input master file with primer and mid tag sequences\n", MASTERFILE);
   fprintf(stderr, "Optional parameters:\n");
+  fprintf(stderr, "  %s  Option to print status updates while running\n", STATUSOPT);
   fprintf(stderr, "  %s   Option to perform filtering only\n", CLEANOPT);
   fprintf(stderr, "  %s   Option to perform denoising only\n", DENOPT);
   fprintf(stderr, "  %s  Option to perform filtering and denoising\n", BOTHOPT);
@@ -37,6 +38,7 @@ void usage(void) {
   fprintf(stderr, "  %s   Output fasta file after denoising\n", DENFASTA);
   fprintf(stderr, "  %s   Option to produce \"QIIME-style\" output fasta file(s)\n", NOMIDOPT);
   fprintf(stderr, "  %s   Output file for counts of truncated and eliminated reads\n", ERRFILE);
+  fprintf(stderr, "  %s  Output file for detailed filtering information for each read\n", FILFILE);
   fprintf(stderr, "  %s   Output file for denoising \"misses\"\n", MISSFILE);
   fprintf(stderr, "  %s   Option to produce consensus flowgram and mapping files after denoising\n", DENPOPT);
   fprintf(stderr, "  %s  File extension for denoised flowgrams\n", DENFEXT);
@@ -144,11 +146,13 @@ int error(char* val, int err) {
     msg = MERRMISM;
   else if (err == ERRMAXF)
     msg = MERRMAXF;
+  else if (err == ERRLEN)
+    msg = MERRLEN;
   else
     msg = UNKNOWN;
 
   fprintf(stderr, "%s\n", msg);
-  if (err != ERREXIST)
+  if (err != ERREXIST && err != ERRLEN)
     freeMemory();
   return -1;
 }
@@ -673,9 +677,8 @@ int findOffset(char* primer, char* trim, char* order) {
  */
 void printPrimer(FILE* out, Primer* p, int len,
     char* order, int denpOpt, int midOpt, int perOpt,
-    int reg, int* tclus, int* tread) {
+    int reg, int* tclus, int* tread, int statusOpt) {
 
-  printf("%s", p->name);
   char* trim = (char*) memalloc(MIDPRIM);
   int offset = findOffset(p->seq, trim, order);
   int last = strlen(p->seq) - strlen(trim);
@@ -687,14 +690,11 @@ void printPrimer(FILE* out, Primer* p, int len,
   Read* dummy = (Read*) memalloc(sizeof(Read));
   int clus = 0, read = 0;
 
-  Cluster* c = p->head;
-  while (c != NULL) {
+  for (Cluster* c = p->head; c != NULL; c = c->next) {
 
     // skip empty clusters
-    if (c->first == NULL) {
-      c = c->next;
+    if (c->first == NULL)
       continue;
-    }
 
     // sort reads by size
     mergeSort2(c, dummy);
@@ -726,10 +726,11 @@ void printPrimer(FILE* out, Primer* p, int len,
 
     read += clusSize2(c);
     clus++;
-    c = c->next;
   }
 
-  printf("\tReads: %d\n\tClusters: %d\n", read, clus);
+  if (statusOpt)
+    printf("\n%s%sReads: %s%10d\n%s%sClusters:%10d",
+      TAB, TAB, TAB, read, TAB, TAB, clus);
   *tclus += clus;
   *tread += read;
 
@@ -1037,7 +1038,12 @@ Read* getRead(Primer* p, int numFlows, int reg,
  * Controls the second iteration of denoising.
  */
 void secondIter(Primer* p, float** inter,
-    FILE* missFile, int** miss, int numFlows) {
+    FILE* missFile, int** miss, int numFlows,
+    int total) {
+
+  if (total)
+    printf("\n%sPrimer %s (second iteration)\n",
+      TAB, p->name);
 
   // sort clusters by size
   Cluster* dummy = (Cluster*) memalloc(sizeof(Cluster));
@@ -1045,9 +1051,13 @@ void secondIter(Primer* p, float** inter,
   free(dummy);
 
   // denoise reads -- 2nd iteration
+  int count = 0;
   Read* r = p->dummy->next;
   Read* next;
   while (r != NULL) {
+    if (total)
+      printf("%s%sCompleted %.1f%%\r", TAB, TAB,
+        ++count * 100.0f / total);
     next = r->next;
     denRead(p, r, inter, missFile, miss, numFlows, 1);
     free(r->flow);
@@ -1063,21 +1073,28 @@ void secondIter(Primer* p, float** inter,
 void printDenoise(FILE* out, char* order, int denpOpt,
     int midOpt, int perOpt, int reg, FILE* missFile,
     int** miss, float** inter, int numFlows,
-    float max) {
+    float max, int statusOpt) {
 
+  if (statusOpt)
+    printf("Denoising:");
   int tclus = 0, tread = 0;
 
   for (Primer* p = primo; p != NULL; p = p->next) {
-
-    secondIter(p, inter, missFile, miss, numFlows);
+    int total = 0;
+    if (statusOpt)
+      for (Read* r = p->dummy->next; r != NULL; r = r->next)
+        total++;
+    secondIter(p, inter, missFile, miss, numFlows, total);
     printPrimer(out, p, 2 * numFlows, order, denpOpt,
-      midOpt, perOpt, reg, &tclus, &tread);
+      midOpt, perOpt, reg, &tclus, &tread, statusOpt);
 
     freeClus(p->head);
     p->head = NULL;
   }
 
-  printf("Total\tReads: %d\n\tClusters: %d\n", tread, tclus);
+  if (statusOpt)
+    printf("\n%sTotal\n%s%sReads: %s%10d\n%s%sClusters:%10d\n",
+      TAB, TAB, TAB, TAB, tread, TAB, TAB, tclus);
 
   // print misses array
   if (missFile != NULL) {
@@ -1330,9 +1347,7 @@ int nodeSize(Primer* p) {
  */
 void printTrie(FILE* out, Primer* p, int len,
     char* order, int denpOpt, int midOpt, int perOpt,
-    int reg, int* tclus, int* tread) {
-
-  printf("%s", p->name);
+    int reg, int* tclus, int* tread, int statusOpt) {
 
   char* trim = (char*) memalloc(MIDPRIM);
   int offset = findOffset(p->seq, trim, order);
@@ -1426,7 +1441,9 @@ void printTrie(FILE* out, Primer* p, int len,
     n = n->next;
   }
 
-  printf("\tReads: %d\n\tLeaf nodes: %d\n", count, leaf);
+  if (statusOpt)
+    printf("\n%s%sReads: %s%s%10d\n%s%sLeaf nodes:%10d",
+      TAB, TAB, TAB, TAB, count, TAB, TAB, leaf);
   *tclus += leaf;
   *tread += count;
 
@@ -1446,7 +1463,7 @@ void printTrie(FILE* out, Primer* p, int len,
 void printNodes(Node* first, int level) {
   for (Node* n = first; n != NULL; n = n->next) {
     for (int i = 0; i < level; i++)
-      printf("  ");
+      printf("%s", TAB);
     printf("%.3f to %.3f (%d nodes)\n", n->flow[n->st],
       n->flow[n->end - 1], n->end - n->st);
     printNodes(n->child, level + 1);
@@ -1647,13 +1664,27 @@ void denTrie(Primer* p, Read* r, int len, float* flow,
  */
 void readClean(int midOpt, float** inter,
     int denpOpt, FILE* denFasta, FILE* missFile,
-    int** miss, int trieOpt, int perOpt, float max) {
+    int** miss, int trieOpt, int perOpt, float max,
+    int statusOpt) {
 
+  if (statusOpt)
+    printf("Denoising%s:", trieOpt ?
+      " (by trie)" : "");
   int tclus = 0, tread = 0;
   float* flow = NULL;
 
   Primer* p = primo;
   while (p != NULL) {
+
+    int count = 0, total = 0;
+    if (statusOpt) {
+      printf("\n%sPrimer %s %s\n", TAB, p->name,
+        trieOpt ? "" : "(first iteration)");
+      while (fgets(line, MAX_SIZE, p->out) != NULL)
+        total++;
+      total--;
+      rewind(p->out);
+    }
 
     // get header information
     char* order = NULL; // flow order
@@ -1667,13 +1698,17 @@ void readClean(int midOpt, float** inter,
 
       Read* r = getRead(p, numFlows, reg, flow, max);
       while (r != NULL) {
+        if (total)
+          printf("%s%sCompleted %.1f%%\r", TAB, TAB,
+            ++count * 100.0f / total);
         denTrie(p, r, r->length, flow, inter,
           missFile, miss);
         r = getRead(p, numFlows, reg, flow, max);
       }
 
       printTrie(denFasta, p, 2 * numFlows, order,
-        denpOpt, midOpt, perOpt, reg, &tclus, &tread);
+        denpOpt, midOpt, perOpt, reg, &tclus, &tread,
+        statusOpt);
 
       freeTrie(p->root);
       p->root = NULL;
@@ -1686,6 +1721,9 @@ void readClean(int midOpt, float** inter,
       p->dummy->next = r;
       p->prev = r;
       while (r != NULL) {
+        if (total)
+          printf("%s%sCompleted %.1f%%\r", TAB, TAB,
+            ++count * 100.0f / total);
         denRead(p, r, inter, missFile, miss,
           numFlows, 0);
         r = getRead(p, numFlows, reg, flow, max);
@@ -1694,11 +1732,11 @@ void readClean(int midOpt, float** inter,
       }
 
       // 2nd iteration
-      secondIter(p, inter, missFile, miss, numFlows);
+      secondIter(p, inter, missFile, miss, numFlows, total);
 
       // produce outputs (flowgram, mapping, fasta)
       printPrimer(denFasta, p, 2 * numFlows, order, denpOpt,
-        midOpt, perOpt, reg, &tclus, &tread);
+        midOpt, perOpt, reg, &tclus, &tread, statusOpt);
 
       freeClus(p->head);
       p->head = NULL;
@@ -1708,11 +1746,10 @@ void readClean(int midOpt, float** inter,
     p = p->next;
   }
 
-  printf("Total\tReads: %d\n", tread);
-  if (trieOpt)
-    printf("\tLeaf nodes: %d\n", tclus);
-  else
-    printf("\tClusters: %d\n", tclus);
+  if (statusOpt)
+    printf("\n%sTotal\n%s%sReads: %s%s%10d\n%s%s%s:%10d\n",
+      TAB, TAB, TAB, TAB, trieOpt ? TAB : "", tread, TAB, TAB,
+      trieOpt ? "Leaf nodes" : "Clusters", tclus);
 
   // free inter array
   int maxm = (int) ((max + 0.01f) * 100.0f);
@@ -1734,20 +1771,26 @@ void readClean(int midOpt, float** inter,
  */
 void printDenTrie(FILE* out, int len, char* order,
     int denpOpt, int midOpt, int perOpt, int reg,
-    FILE* missFile, int** miss, float max) {
+    FILE* missFile, int** miss, float max,
+    int statusOpt) {
+
+  if (statusOpt)
+    printf("Denoising results:");
 
   int tclus = 0, tread = 0;
   for (Primer* p = primo; p != NULL; p = p->next) {
-
+    if (statusOpt)
+      printf("\n%sPrimer %s", TAB, p->name);
     printTrie(out, p, len, order, denpOpt, midOpt,
-      perOpt, reg, &tclus, &tread);
+      perOpt, reg, &tclus, &tread, statusOpt);
 
     freeTrie(p->root);
     p->root = NULL;
   }
 
-  printf("Total\tReads: %d\n\tLeaf nodes: %d\n",
-    tread, tclus);
+  if (statusOpt)
+    printf("\n%sTotal\n%s%sReads: %s%s%10d\n%s%sLeaf nodes:%10d\n",
+      TAB, TAB, TAB, TAB, TAB, tread, TAB, TAB, tclus);
 
   // print misses array
   if (missFile != NULL) {
@@ -1813,20 +1856,17 @@ int ambig(char x, char y) {
  * Finds a mid tag - primer match to the given sequence.
  */
 Midtag* findMid(char* seq, int midMis, int primMis) {
-  Primer* p = primo;
-  while (p != NULL) {
-
-    Midtag* m = p->first;
-    while (m != NULL) {
+  for (Primer* p = primo; p != NULL; p = p->next) {
+    for (Midtag* m = p->first; m != NULL; m = m->next) {
 
       // check mid tag
       int misAllow = midMis;
       int i;
       for (i = 0; m->seq[i] != '\0'; i++)
-        if (m->seq[i] != seq[i] && (m->seq[i] == 'A' ||
-            m->seq[i] == 'C' || m->seq[i] == 'G' ||
-            m->seq[i] == 'T' || ambig(m->seq[i], seq[i]))
-            && --misAllow < 0)
+        if (seq[i] == '\0' || (m->seq[i] != seq[i] &&
+            (m->seq[i] == 'A' || m->seq[i] == 'C' ||
+            m->seq[i] == 'G' || m->seq[i] == 'T' ||
+            ambig(m->seq[i], seq[i])) && --misAllow < 0))
           break;
 
       // check primer
@@ -1834,20 +1874,17 @@ Midtag* findMid(char* seq, int midMis, int primMis) {
         misAllow = primMis;
         int j;
         for (j = 0; p->seq[j] != '\0'; j++)
-          if (p->seq[j] != seq[i + j] && (p->seq[j] == 'A' ||
-              p->seq[j] == 'C' || p->seq[j] == 'G' ||
-              p->seq[j] == 'T' || ambig(p->seq[j], seq[i + j]))
-              && (p->seq[j + 1] == '\0' || --misAllow < 0))
+          if (seq[i + j] == '\0' || (p->seq[j] != seq[i + j] &&
+              (p->seq[j] == 'A' || p->seq[j] == 'C' ||
+              p->seq[j] == 'G' || p->seq[j] == 'T' ||
+              ambig(p->seq[j], seq[i + j])) &&
+              (p->seq[j + 1] == '\0' || --misAllow < 0)))
             break;
 
         if (p->seq[j] == '\0')
           return seq[i + j] != '\0' ? m : NULL;
       }
-
-      m = m->next;
     }
-
-    p = p->next;
   }
   return NULL;
 }
@@ -2054,17 +2091,6 @@ int checkFlows(float* flowgram, int start, int end,
   return i;
 }
 
-/* void trimMid(char*, Midtag*)
- * Trims the seq of its mid tag and primer.
- */
-void trimMid(char* seq, Midtag* mid) {
-  int len = strlen(mid->seq) + strlen(mid->prim->seq);
-  int i;
-  for (i = 0; seq[i + len] != '\0'; i++)
-    seq[i] = seq[i + len];
-  seq[i] = '\0';
-}
-
 /* void printClean()
  * Prints output from cleaning step.
  */
@@ -2083,9 +2109,9 @@ void printClean(FILE* fasta, char* header, Midtag* mid,
   // print fasta sequence
   if (fasta != NULL) {
     if (midOpt) {
-      trimMid(seq, mid);
+      int add = strlen(mid->seq) + strlen(mid->prim->seq);
       fprintf(fasta, ">%s%s%d %s %s\n%s\n", mid->name, PER,
-        count, header, mid->prim->name, seq);
+        count, header, mid->prim->name, seq + add);
     } else
       fprintf(fasta, ">%s\n%s\n", header, seq);
   }
@@ -2105,33 +2131,35 @@ int naCheck(int i, int j, int opt, int val, int revOpt) {
 }
 
 /* void printSamples()
- * Prints detailed cleaning numbers for each sample.
+ * Prints detailed filtering counts for each sample.
  */
 void printSamples(FILE* err, int elim[][ETCAT][ERRCAT],
-    int match[][ETCAT], int* categ, int opt, int revOpt) {
+    int match[][ETCAT], char** categ, int opt, int revOpt) {
   fprintf(err, "Breakdown by sample:\n");
-  Primer* p = primo;
-  while (p != NULL) {
+  for (Primer* p = primo; p != NULL; p = p->next) {
     fprintf(err, "\n%s\n", p->name);
-    int tot[ETCAT][ERRCAT + 1] = {{0}};
+    for (int i = 0; i < ERRCAT; i++)
+      if (categ[i] != NULL)
+        fprintf(err, "\t%s", categ[i]);
+    fprintf(err, "\t%s", TOTAL);
+    int tot[ETCAT][ERRCAT + 2] = {{0}};
 
     // print totals for each sample
-    Midtag* m = p->first;
-    while (m != NULL) {
+    for (Midtag* m = p->first; m != NULL; m = m->next) {
       fprintf(err, "%s\n", m->name);
       for (int j = ELIM; j < ETCAT; j++) {
         j ? fprintf(err, STRUNC) : fprintf(err, SELIM);
         int k, total = 0;
-        for (k = 0; categ[k] != -1; k++) {
-          if (naCheck(j, categ[k], opt, elim[m->num][j][categ[k]],
-              revOpt))
-            fprintf(err, "\t%s", NA);
-          else {
-            fprintf(err, "\t%d", elim[m->num][j][categ[k]]);
-            total += elim[m->num][j][categ[k]];
-            tot[j][k] += elim[m->num][j][categ[k]];
+        for (k = 0; k < ERRCAT; k++)
+          if (categ[k] != NULL) {
+            if (naCheck(j, k, opt, elim[m->num][j][k], revOpt))
+              fprintf(err, "\t%s", NA);
+            else {
+              fprintf(err, "\t%d", elim[m->num][j][k]);
+              total += elim[m->num][j][k];
+              tot[j][k] += elim[m->num][j][k];
+            }
           }
-        }
         fprintf(err, "\t%d", total);
         tot[j][k++] += total;
         if (j) {
@@ -2142,7 +2170,6 @@ void printSamples(FILE* err, int elim[][ETCAT][ERRCAT],
           tot[j][k] += match[m->num][MATCH];
         }
       }
-      m = m->next;
     }
 
     // print totals for the primer
@@ -2150,16 +2177,15 @@ void printSamples(FILE* err, int elim[][ETCAT][ERRCAT],
     for (int j = ELIM; j < ETCAT; j++) {
       j ? fprintf(err, STRUNC) : fprintf(err, SELIM);
       int k;
-      for (k = 0; categ[k] != -1; k++)
-        naCheck(j, categ[k], opt, tot[j][k], revOpt) ?
-          fprintf(err, "\t%s", NA) :
-          fprintf(err, "\t%d", tot[j][k]);
+      for (k = 0; k < ERRCAT; k++)
+        if (categ[k] != NULL)
+          naCheck(j, k, opt, tot[j][k], revOpt) ?
+            fprintf(err, "\t%s", NA) :
+            fprintf(err, "\t%d", tot[j][k]);
       fprintf(err, "\t%d", tot[j][k++]);
       j ? fprintf(err, "\t%s\t%d\n", SPRINT, tot[j][k]) :
         fprintf(err, "\t%s\t%d\n", SMATCH, tot[j][k]);
     }
-
-    p = p->next;
   }
 
 }
@@ -2167,65 +2193,111 @@ void printSamples(FILE* err, int elim[][ETCAT][ERRCAT],
 /* void printMatch()
  * Prints the match/print counts.
  */
-void printMatch(FILE* err, int count, int match[][ETCAT]) {
-  FILE* out = err == NULL ? stdout : err;
-  fprintf(out, "\n%s\t%d\n", COUNT, count);
-  if (err != NULL) {
-    for (Primer* p = primo; p != NULL; p = p->next)
-      fprintf(out, "\t%s", p->name);
-    fprintf(out, "\t%s", TOTAL);
-  }
-  for (int i = MATCH; i < ETCAT; i++) {
-    i ? fprintf(out, SPRINT) : fprintf(out, SMATCH);
-    int k = 0, total = 0;
-    for (Primer* p = primo; p != NULL; p = p->next) {
-      int tot = 0;
-      for (Midtag* m = p->first; m != NULL; m = m->next)
-        tot += match[k++][i];
-      if (err != NULL)
-        fprintf(out, "\t%d", tot);
-      total += tot;
+void printMatch(FILE* err, int count, int match[][ETCAT],
+    int statusOpt) {
+
+  if (statusOpt) {
+    printf("\n%s%s%s%s%10d\n", TAB, COUNT,
+      TAB, TAB, count);
+    for (int i = MATCH; i < ETCAT; i++) {
+      if (i)
+        printf("%s%s %s%s", TAB, SPRINT, TAB, TAB);
+      else
+        printf("%s%s", TAB, SMATCH);
+      int k = 0, total = 0;
+      for (Primer* p = primo; p != NULL; p = p->next)
+        for (Midtag* m = p->first; m != NULL; m = m->next)
+          total += match[k++][i];
+      printf("%10d\n", total);
     }
-    fprintf(out, "\t%d\n", total);
   }
-  fprintf(out, "\n");
+
+  if (err != NULL) {
+    fprintf(err, "\n%s\t%d\n", COUNT, count);
+    for (Primer* p = primo; p != NULL; p = p->next)
+      fprintf(err, "\t%s", p->name);
+    fprintf(err, "\t%s", TOTAL);
+    for (int i = MATCH; i < ETCAT; i++) {
+      fprintf(err, "%s", i ? SPRINT : SMATCH);
+      int k = 0, total = 0;
+      for (Primer* p = primo; p != NULL; p = p->next) {
+        int tot = 0;
+        for (Midtag* m = p->first; m != NULL; m = m->next)
+          tot += match[k++][i];
+        fprintf(err, "\t%d", tot);
+        total += tot;
+      }
+      fprintf(err, "\t%d\n", total);
+    }
+    fprintf(err, "\n");
+  }
 }
 
 /* void printStats()
  * Prints the cleaning data.
  */
 void printStats(FILE* err, int elim[][ETCAT][ERRCAT],
-    int match[][ETCAT], int* categ, int opt, int count,
-    int samples, int revmOpt) {
+    int match[][ETCAT], char** categ, int opt, int count,
+    int samples, int revmOpt, int statusOpt) {
 
   // print elim/trunc counts
   if (err != NULL) {
+    for (int i = 0; i < ERRCAT; i++)
+      if (categ[i] != NULL)
+        fprintf(err, "\t%s", categ[i]);
+    fprintf(err, "\t%s", TOTAL);
+
     for (int i = ELIM; i < ETCAT; i++) {
       i ? fprintf(err, STRUNC) : fprintf(err, SELIM);
       int total = 0;
-      for (int j = 0; categ[j] != -1; j++) {
-        int subt = 0;
-        for (int k = 0; k < samples; k++)
-          subt += elim[k][i][categ[j]];
-        naCheck(i, categ[j], opt, subt, revmOpt) ?
-          fprintf(err, "\t%s", NA) :
-          fprintf(err, "\t%d", subt);
-        total += subt;
+      for (int j = 0; j < ERRCAT; j++) {
+        if (categ[j] != NULL) {
+          int subt = 0;
+          for (int k = 0; k < samples; k++)
+            subt += elim[k][i][j];
+          naCheck(i, j, opt, subt, revmOpt) ?
+            fprintf(err, "\t%s", NA) :
+            fprintf(err, "\t%d", subt);
+          total += subt;
+        }
       }
       fprintf(err, "\t%d\n", total);
     }
   }
 
   // print match/print counts
-  printMatch(err, count, match);
+  printMatch(err, count, match, statusOpt);
 
   // print full breakdown
   if (err != NULL) {
     printSamples(err, elim, match, categ, opt, revmOpt);
-    free(categ);
     if (fclose(err))
-      exit(error("", 1));
+      exit(error("", ERRCLOSE));
   }
+
+  if (categ != NULL) {
+    for (int i = 0; i < ERRCAT; i++)
+      if (categ[i] != NULL)
+        free(categ[i]);
+    free(categ);
+  }
+}
+
+/* void printFil()
+ * Prints verbose filtering results.
+ */
+void printFil(FILE* fil, char* header, Midtag* mid,
+    int outcome, char* categ, int flen, int tlen) {
+  fprintf(fil, "%s\t%s\t%s\t", header, mid->name,
+    mid->prim->name);
+  if (outcome == TRUNC)
+    fprintf(fil, "%s\t%s\t%d\t%d", TRUNCL, categ,
+      flen, tlen);
+  else if (outcome == ELIM)
+    fprintf(fil, "%s\t%s\t%d", ELIML, categ, flen);
+  else
+    fprintf(fil, "%s\t\t\t%d", NEITHER, tlen);
+  fprintf(fil, "\n");
 }
 
 /* void readFile()
@@ -2238,13 +2310,22 @@ void readFile(FILE* file, FILE* fasta, int midMis,
     int windowOpt, int minFlowLen, int maxFlows,
     float minNoise, float maxNoise, float maxValue,
     float noFlow, int seqCh, int qualCh, int flowCh,
-    int samples, int midOpt, FILE* err, int* categ,
+    int samples, int midOpt, FILE* err, char** categ,
     float** inter, int denOpt, int denpOpt,
     FILE* denFasta, FILE* missFile, int** miss,
     int revmOpt, int revqOpt, int revMis, int trieOpt,
-    int perOpt, float max) {
+    int perOpt, float max, int statusOpt, FILE* fil) {
 
   // save header information
+  int numReads = 0;
+  if (statusOpt) {
+    numReads = getInt(getData(file, line, NUMRE));
+    printf("Filtering");
+    if (denOpt)
+      printf(" and Denoising (%s)", trieOpt ?
+        "by trie" : "first iteration");
+    printf(":\n");
+  }
   int numFlows = getInt(getData(file, line, NUMFL));
   char* flowOrder = (char*) memalloc(numFlows + 1);
   char* orderLine = getData(file, line, CHARS);
@@ -2271,18 +2352,21 @@ void readFile(FILE* file, FILE* fasta, int midMis,
   // initialize variables for saving data
   int maxlen = 2 * numFlows;
   char* header = (char*) memalloc(HEADER + 1);
-  char* flowl = (char*) memalloc(5 * maxlen);
-  char* indexl = (char*) memalloc(5 * maxlen);
-  char* quall = (char*) memalloc(5 * maxlen);
+  char* flowl = (char*) memalloc(MAX_SIZE);
+  char* indexl = (char*) memalloc(MAX_SIZE);
+  char* quall = (char*) memalloc(MAX_SIZE);
   float* flowgram = (float*) memalloc(numFlows * sizeof(float));
   int* index = (int*) memalloc(maxlen * sizeof(int));
-  char* seq = (char*) memalloc(maxlen);
+  char* seq = (char*) memalloc(maxlen + 1);
   int* qual = (int*) memalloc(maxlen * sizeof(int));
 
   // read file
   while (fgets(line, MAX_SIZE, file) != NULL) {
     if (line[0] == '>') {
       count++;
+      if (numReads)
+        printf("%sCompleted %.1f%%\r", TAB,
+          100.0f * count / numReads);
 
       // save header and sequence data
       int i;
@@ -2297,6 +2381,10 @@ void readFile(FILE* file, FILE* fasta, int midMis,
 
       // save bases -- after clipping
       int len = clipr - clipl;
+      if (len > maxlen) {
+        error(header, ERRLEN);
+        len = maxlen;
+      }
       for (i = 0; i < len; i++)
         seq[i] = seql[i + clipl + 1];
       seq[i] = '\0';
@@ -2318,6 +2406,9 @@ void readFile(FILE* file, FILE* fasta, int midMis,
             revmOpt, revqOpt, mid->prim->rev, revMis, &errNum);
           if (!end) {
             elim[mid->num][ELIM][errNum]++;
+            if (fil != NULL)
+              printFil(fil, header, mid, ELIM, categ[errNum],
+                len, end);
             continue;
           }
         }
@@ -2332,6 +2423,9 @@ void readFile(FILE* file, FILE* fasta, int midMis,
             avgQual, windowLen, windowAvg, windowOpt, &errNumQ);
           if (!qualEnd) {
             elim[mid->num][ELIM][errNumQ]++;
+            if (fil != NULL)
+              printFil(fil, header, mid, ELIM, categ[errNumQ],
+                len, end);
             continue;
           }
           if (qualEnd < end) {
@@ -2348,6 +2442,9 @@ void readFile(FILE* file, FILE* fasta, int midMis,
           index[minLength - 1] : minFlowLen; // min. flowgram length
         if (errNum && last < minFlows) {
           elim[mid->num][ELIM][errNum]++;
+          if (fil != NULL)
+            printFil(fil, header, mid, ELIM, categ[errNum],
+              len, end);
           continue;
         }
         loadFlow(flows, flowgram, last, max);
@@ -2359,6 +2456,9 @@ void readFile(FILE* file, FILE* fasta, int midMis,
             maxFlows, minNoise, maxNoise, maxValue, noFlow, &errNumF);
           if (flowEnd < minFlows) {
             elim[mid->num][ELIM][errNumF]++;
+            if (fil != NULL)
+              printFil(fil, header, mid, ELIM, categ[errNumF],
+                len, end);
             continue;
           }
 
@@ -2376,6 +2476,9 @@ void readFile(FILE* file, FILE* fasta, int midMis,
         // print output
         match[mid->num][PRINT]++;
         elim[mid->num][TRUNC][errNum]++;
+        if (fil != NULL)
+          printFil(fil, header, mid, errNum ? TRUNC : -1,
+            categ[errNum], len, end);
         int start = index[min - 2] - 1; // last flow value of primer
         seq[end] = '\0';
         printClean(fasta, header, mid, flowgram, start, last,
@@ -2400,17 +2503,19 @@ void readFile(FILE* file, FILE* fasta, int midMis,
   }
 
   // print cleaning statistics
-  printStats(err, elim, match, categ, windowOpt,
-    count, samples, revmOpt);
+  if (err != NULL || statusOpt)
+    printStats(err, elim, match, categ, windowOpt,
+      count, samples, revmOpt, statusOpt);
 
   // finish denoising (2nd iter [if nec.], print output)
   if (denOpt) {
     if (trieOpt)
       printDenTrie(denFasta, maxlen, flowOrder, denpOpt,
-        midOpt, perOpt, reg, missFile, miss, max);
+        midOpt, perOpt, reg, missFile, miss, max, statusOpt);
     else
       printDenoise(denFasta, flowOrder, denpOpt, midOpt,
-        perOpt, reg, missFile, miss, inter, numFlows, max);
+        perOpt, reg, missFile, miss, inter, numFlows,
+        max, statusOpt);
 
     // free inter array
     int maxm = (int) ((max + 0.01f) * 100.0f);
@@ -2429,7 +2534,8 @@ void readFile(FILE* file, FILE* fasta, int midMis,
   free(qual);
   free(flowgram);
   free(index);
-  if (fclose(file) || (fasta != NULL && fclose(fasta)))
+  if (fclose(file) || (fasta != NULL && fclose(fasta))
+      || (fil != NULL && fclose(fil)))
     exit(error("", ERRCLOSE));
 
 }
@@ -2487,7 +2593,7 @@ void revComp(char* out, char* seq) {
   out[j] = '\0';
 }
 
-/* char* getMids(FILE*, Primer*, int*)
+/* char* getMids()
  * Loads mid tags from the given file and saves
  *   them to the given primer.
  */
@@ -2699,102 +2805,123 @@ int loadSeqs(FILE* master, char* flowExt, int opt,
   return count;
 }
 
-/* void printCat(FILE*, char*, void*, void*, int)
- * Prints category headers for error file.
+/* void printCat()
+ * Saves the filtering criteria.
  */
-void printCat(FILE* err, char* cat, void* val1,
-    void* val2, int type) {
-  fprintf(err, "\t%s", cat);
+void printCat(char** categ, int ecat, char* cat,
+    void* val1, void* val2, int type) {
+  categ[ecat] = (char*) memalloc(MIDPRIM);
+  int i;
+  for (i = 0; cat[i] != '\0'; i++)
+    categ[ecat][i] = cat[i];
   if (val1 != NULL) {
     if (type == 1)
-      fprintf(err, " (%d)", *(int*)val1);
+      sprintf(categ[ecat] + i, " (%d)", *(int*)val1);
     else if (type == 2)
-      fprintf(err, " (%.2f)", *(float*)val1);
+      sprintf(categ[ecat] + i, " (%.2f)", *(float*)val1);
     else if (type == 3)
-      fprintf(err, " (length=%d, qual=%.2f)", *(int*)val1,
-        *(float*)val2);
+      sprintf(categ[ecat] + i, " (length=%d, qual=%.1f)",
+        *(int*)val1, *(float*)val2);
     else if (type == 4)
-      fprintf(err, " (%.2f-%.2f)", *(float*)val1,
-        *(float*)val2);
-  }
+      sprintf(categ[ecat] + i, " (%.2f-%.2f)",
+        *(float*)val1, *(float*)val2);
+  } else
+    categ[ecat][i] = '\0';
 }
 
-/* int* getCateg(FILE*, params)
- * Determines which parameters are being used.
+/* char** getCateg()
+ * Determines which filtering criteria are being used.
  */
-int* getCateg(FILE* err, int minSeqLength, int maxSeqLength,
+char** getCateg(int minSeqLength, int maxSeqLength,
     int maxTrLength, int maxAmbig, int okAmbig,
     int maxHomo, int okHomo, float avgQual, int windowLen,
     float windowAvg, int minFlows, int maxFlows,
     float minNoise, float maxNoise, float maxValue,
     float noFlow, int revmOpt, int revqOpt) {
 
-  int* categ = (int*) memalloc(ERRCAT * sizeof(int));
-  int i = 0;
-  if (minSeqLength) {
-    categ[i++] = EMINSLEN;
-    printCat(err, DMINSLEN, &minSeqLength, NULL, 1);
-  }
-  if (maxSeqLength != MAX_SIZE) {
-    categ[i++] = EMAXSLEN;
-    printCat(err, DMAXSLEN, &maxSeqLength, NULL, 1);
-  }
-  if (maxTrLength != MAX_SIZE) {
-    categ[i++] = EMAXTRLEN;
-    printCat(err, DMAXTRLEN, &maxTrLength, NULL, 1);
-  }
-  if (maxAmbig != MAX_SIZE) {
-    categ[i++] = EMAXAMBIG;
-    printCat(err, DMAXAMBIG, &maxAmbig, NULL, 1);
-  }
-  if (okAmbig != MAX_SIZE) {
-    categ[i++] = EOKAMBIG;
-    printCat(err, DOKAMBIG, &okAmbig, NULL, 1);
-  }
-  if (maxHomo) {
-    categ[i++] = EMAXHOMO;
-    printCat(err, DMAXHOMO, &maxHomo, NULL, 1);
-  }
-  if (okHomo) {
-    categ[i++] = EOKHOMO;
-    printCat(err, DOKHOMO, &okHomo, NULL, 1);
-  }
-  if (revmOpt || revqOpt) {
-    categ[i++] = EREVERSE;
-    printCat(err, DREVERSE, NULL, NULL, 0);
-  }
-  if (avgQual) {
-    categ[i++] = EAVGQUAL;
-    printCat(err, DAVGQUAL, &avgQual, NULL, 2);
-  }
-  if (windowAvg) {
-    categ[i++] = EWINDOW;
-    printCat(err, DWINDOW, &windowLen, &windowAvg, 3);
-  }
-  if (minFlows) {
-    categ[i++] = EMINFLEN;
-    printCat(err, DMINFLEN, &minFlows, NULL, 1);
-  }
-  if (maxFlows != MAX_SIZE) {
-    categ[i++] = EMAXFLEN;
-    printCat(err, DMAXFLEN, &maxFlows, NULL, 1);
-  }
-  if (minNoise) {
-    categ[i++] = EFLOWINT;
-    printCat(err, DFLOWINT, &minNoise, &maxNoise, 4);
-  }
-  if (maxValue != DEFMAXFLOW) {
-    categ[i++] = EMAXNVAL;
-    printCat(err, DMAXNVAL, &maxValue, NULL, 2);
-  }
-  if (noFlow) {
-    categ[i++] = ENOFLOW;
-    printCat(err, DNOFLOW, &noFlow, NULL, 2);
-  }
-  printCat(err, TOTAL, NULL, NULL, 0);
+  char** categ = (char**) memalloc(ERRCAT * sizeof(char*));
+  for (int i = 0; i < ERRCAT; i++)
+    categ[i] = NULL;
 
-  categ[i] = -1; // tag on end
+  if (minSeqLength)
+    printCat(categ, EMINSLEN, DMINSLEN, &minSeqLength, NULL, 1);
+  if (maxSeqLength != MAX_SIZE)
+    printCat(categ, EMAXSLEN, DMAXSLEN, &maxSeqLength, NULL, 1);
+  if (maxTrLength != MAX_SIZE)
+    printCat(categ, EMAXTRLEN, DMAXTRLEN, &maxTrLength, NULL, 1);
+  if (maxAmbig != MAX_SIZE)
+    printCat(categ, EMAXAMBIG, DMAXAMBIG, &maxAmbig, NULL, 1);
+  if (okAmbig != MAX_SIZE)
+    printCat(categ, EOKAMBIG, DOKAMBIG, &okAmbig, NULL, 1);
+  if (maxHomo)
+    printCat(categ, EMAXHOMO, DMAXHOMO, &maxHomo, NULL, 1);
+  if (okHomo)
+    printCat(categ, EOKHOMO, DOKHOMO, &okHomo, NULL, 1);
+  if (revmOpt || revqOpt)
+    printCat(categ, EREVERSE, DREVERSE, NULL, NULL, 0);
+  if (avgQual)
+    printCat(categ, EAVGQUAL, DAVGQUAL, &avgQual, NULL, 2);
+  if (windowAvg)
+    printCat(categ, EWINDOW, DWINDOW, &windowLen, &windowAvg, 3);
+  if (minFlows)
+    printCat(categ, EMINFLEN, DMINFLEN, &minFlows, NULL, 1);
+  if (maxFlows != MAX_SIZE)
+    printCat(categ, EMAXFLEN, DMAXFLEN, &maxFlows, NULL, 1);
+  if (minNoise)
+    printCat(categ, EFLOWINT, DFLOWINT, &minNoise, &maxNoise, 4);
+  if (maxValue != DEFMAXFLOW)
+    printCat(categ, EMAXNVAL, DMAXNVAL, &maxValue, NULL, 2);
+  if (noFlow)
+    printCat(categ, ENOFLOW, DNOFLOW, &noFlow, NULL, 2);
+
   return categ;
+}
+
+/* void loadDist()
+ * Loads asymmetric distances from given file.
+ */
+void loadDist(FILE* sd, float** inter, float val,
+    int max) {
+  for (int i = 0; i < max; i++) {
+    float f = i / 100.0f;
+
+    // load values from stddev file
+    do {
+      if (fgets(line, MAX_SIZE, sd) == NULL)
+        exit(error("", ERRSDVAL));
+    } while (line[0] == '#' || line[0] == '\n');
+    char* dist1 = strtok(line, CSV);
+    char* dist2 = strtok(NULL, DELIM);
+    if (dist1 == NULL || dist2 == NULL)
+      exit(error("", ERRSDVAL));
+
+    float d1 = val * getFloat(dist1);
+    float d2 = val * getFloat(dist2);
+    inter[i][0] = f - d1;
+    inter[i][1] = f + d2;
+  }
+}
+
+/* int checkSD()
+ * Checks file of distances to determine if they
+ *   are asymmetric.
+ */
+int checkSD(FILE* sd, float** inter, float val,
+    int max) {
+  if (sd != NULL) {
+    do {
+      if (fgets(line, MAX_SIZE, sd) == NULL)
+        exit(error("", ERRSDVAL));
+    } while (line[0] == '#' || line[0] == '\n');
+    for (int i = 0; line[i] != '\0'; i++)
+      if (line[i] == ',' || line[i] == '\t') {
+        rewind(sd);
+        loadDist(sd, inter, val, max);
+        return 0;
+      }
+    rewind(sd);
+  }
+  return 1;
 }
 
 /* void makeInter(FILE*, float[][], float)
@@ -2803,24 +2930,25 @@ int* getCateg(FILE* err, int minSeqLength, int maxSeqLength,
 void makeInter(FILE* sd, float** inter, float val,
     int max) {
 
-  for (int i = 0; i < max; i++) {
-    float f = i / 100.0f;
-    float diff = val;
+  if (checkSD(sd, inter, val, max)) {
+    for (int i = 0; i < max; i++) {
+      float f = i / 100.0f;
+      float diff = val;
 
-    // load value from stddev file
-    if (sd != NULL) {
-      do {
-        if (fgets(line, MAX_SIZE, sd) == NULL)
-          exit(error("", ERRSDVAL));
-      } while (line[0] == '#' || line[0] == '\n');
-      float fl = getFloat(line);
-      diff *= fl;
+      // load value from stddev file
+      if (sd != NULL) {
+        do {
+          if (fgets(line, MAX_SIZE, sd) == NULL)
+            exit(error("", ERRSDVAL));
+        } while (line[0] == '#' || line[0] == '\n');
+        float fl = getFloat(line);
+        diff *= fl;
+      }
+
+      inter[i][0] = f - diff;
+      inter[i][1] = f + diff;
     }
-
-    inter[i][0] = f - diff;
-    inter[i][1] = f + diff;
   }
-
 }
 
 /* int defDenoise(float, float)
@@ -2846,7 +2974,8 @@ void checkParams(char* masterFile, FILE** sff, char* sffFile,
     FILE** out, char* outFile, char* flowExt, FILE** err,
     char* errFile, char* sdFile, int denpOpt, char* denfExt,
     char* denmExt, FILE** fasta, char* fastaFile, FILE** misses,
-    char* missFile, int** categ, int midMis, int primMis,
+    char* missFile, FILE** fil, char* filFile,
+    char*** categ, int midMis, int primMis,
     int minSeqLength, int maxSeqLength, int maxTrLength,
     int maxAmbig, int okAmbig, int maxHomo, int okHomo,
     float avgQual, int windowLen, float windowAvg,
@@ -2917,9 +3046,14 @@ void checkParams(char* masterFile, FILE** sff, char* sffFile,
     // open output files
     if (outFile != NULL)
       *out = openWrite(outFile);
-    if (errFile != NULL) {
-      *err = openWrite(errFile);
-      *categ = getCateg(*err, minSeqLength, maxSeqLength,
+    if (filFile != NULL || errFile != NULL) {
+      if (filFile != NULL) {
+        *fil = openWrite(filFile);
+        fprintf(*fil, "%s", FILHEAD);
+      }
+      if (errFile != NULL)
+        *err = openWrite(errFile);
+      *categ = getCateg(minSeqLength, maxSeqLength,
         maxTrLength, maxAmbig, okAmbig, maxHomo, okHomo,
         avgQual, windowLen, windowAvg, minFlows, maxFlows,
         minNoise, maxNoise, maxValue, noFlow, revmOpt,
@@ -3008,10 +3142,12 @@ void getParams(int argc, char* argv[]) {
   char* master = NULL, *sffFile = NULL, *outFile = NULL,
     *flowExt = NULL, *errFile = NULL, *sdFile = NULL,
     *denfExt = NULL, *denmExt = NULL, *fastaFile = NULL,
-    *missFile = NULL, *chimExt = NULL, *chMapExt = NULL;
+    *missFile = NULL, *chimExt = NULL, *chMapExt = NULL,
+    *filFile = NULL;
   int midOpt = 0, windowOpt = 0, cleanOpt = 0, denOpt = 0,
     denpOpt = 0, chimOpt = 0, perOpt = 0,
-    revmOpt = 0, revqOpt = 0, trieOpt = 0;
+    revmOpt = 0, revqOpt = 0, trieOpt = 0,
+    statusOpt = 0;
   int midMis = 0, primMis = 0, minSeqLength = 0,
     maxSeqLength = MAX_SIZE, maxTrLength = MAX_SIZE,
     maxAmbig = MAX_SIZE, okAmbig = MAX_SIZE, maxHomo = 0,
@@ -3045,6 +3181,8 @@ void getParams(int argc, char* argv[]) {
       revqOpt = 1;
     else if (!strcmp(argv[i], TRIEOPT))
       trieOpt = 1;
+    else if (!strcmp(argv[i], STATUSOPT))
+      statusOpt = 1;
     else if (i < argc - 1) {
       if (!strcmp(argv[i], MASTERFILE))
         master = argv[++i];
@@ -3066,6 +3204,8 @@ void getParams(int argc, char* argv[]) {
         denmExt = argv[++i];
       else if (!strcmp(argv[i], DENFASTA))
         fastaFile = argv[++i];
+      else if (!strcmp(argv[i], FILFILE))
+        filFile = argv[++i];
       else if (!strcmp(argv[i], PEREXT)) {
         chimExt = argv[++i];
         perOpt = 1;
@@ -3126,20 +3266,22 @@ void getParams(int argc, char* argv[]) {
 
   // check parameters
   FILE* sff = NULL, *out = NULL, *err = NULL, *fasta = NULL,
-    *misses = NULL;
+    *misses = NULL, *fil = NULL;
   int seqCh = 1, qualCh = 1, flowCh = 1; // booleans for checking
   int samples = 0; // number of samples analyzed
-  int* categ; // categories of elim/trunc criteria
+  char** categ = NULL; // categories of elim/trunc criteria
   float** inter;
   int** miss;
 
   checkParams(master, &sff, sffFile, &out, outFile,
     flowExt, &err, errFile, sdFile, denpOpt, denfExt,
-    denmExt, &fasta, fastaFile, &misses, missFile, &categ,
-    midMis, primMis, minSeqLength, maxSeqLength, maxTrLength,
-    maxAmbig, okAmbig, maxHomo, okHomo, avgQual, windowLen,
-    windowAvg, minFlows, maxFlows, minNoise, maxNoise,
-    maxValue, noFlow, &seqCh, &qualCh, &flowCh,
+    denmExt, &fasta, fastaFile, &misses, missFile,
+    &fil, filFile, &categ, midMis, primMis,
+    minSeqLength, maxSeqLength, maxTrLength,
+    maxAmbig, okAmbig, maxHomo, okHomo, avgQual,
+    windowLen, windowAvg, minFlows, maxFlows,
+    minNoise, maxNoise, maxValue, noFlow,
+    &seqCh, &qualCh, &flowCh,
     &samples, &inter, &cleanOpt, &denOpt, consInt, percInt,
     chimOpt, chimExt, chMapExt, revmOpt, revqOpt, revMis,
     trieOpt, maxFlow, &miss);
@@ -3152,11 +3294,12 @@ void getParams(int argc, char* argv[]) {
       minFlows, maxFlows, minNoise, maxNoise, maxValue,
       noFlow, seqCh, qualCh, flowCh, samples, midOpt, err,
       categ, inter, denOpt, denpOpt, fasta, misses, miss,
-      revmOpt, revqOpt, revMis, trieOpt, perOpt, maxFlow);
+      revmOpt, revqOpt, revMis, trieOpt, perOpt, maxFlow,
+      statusOpt, fil);
 
   else
     readClean(midOpt, inter, denpOpt, fasta, misses, miss,
-      trieOpt, perOpt, maxFlow);
+      trieOpt, perOpt, maxFlow, statusOpt);
 
 }
 

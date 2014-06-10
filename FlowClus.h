@@ -1,6 +1,6 @@
 /*
   John M. Gaspar (jsh58@unh.edu)
-  June 2013
+  June 2013 (updated 1/14, 3/14)
 
   Header for FlowClus.c
 */
@@ -15,11 +15,13 @@
 #define SEP        "-"    // separator for header information
 #define PER        "_"    // separator for QIIME, Perseus output
 #define COM        ","    // separator for chimera mapping file
+#define TAB        "  "   // tab for stdout
 #define END        -1.0f  // tag to indicate end of flowgram
 #define MIN        0.50f  // maximum flow value not to call a base (rounding down)
                           //   -- change to 0.49f to round up
 
 // label names in sff.txt file
+#define NUMRE      "  # of Reads"
 #define NUMFL      "  # of Flows"
 #define CHARS      "  Flow Chars"
 #define CQL        "  Clip Qual Left"
@@ -47,6 +49,7 @@
 
 /***** command-line options *****/
 #define HELP       "-h"  // print usage
+#define STATUSOPT  "-st" // prints status updates while running
 
 // analysis options
 #define CLEANOPT   "-a"  // option to clean only (eliminate, truncate)
@@ -64,7 +67,8 @@
 #define DENPOPT    "-v"  // option to produce consensus flowgram and mapping files
 #define DENFEXT    "-vf" // file extension for denoised flowgrams
 #define DENMEXT    "-vm" // file extension for mapping files after denoising
-#define ERRFILE    "-c"  // output file for filtering data
+#define ERRFILE    "-c"  // output file for filtering counts
+#define FILFILE    "-cv" // output file for detailed filtering information
 #define MISSFILE   "-d"  // output file for misses
 #define SDFILE     "-sd" // input file containing standard deviations for each flow value
 #define CHIMOPT    "-ch" // option to produce output fasta files for de novo chimera-checking
@@ -168,6 +172,8 @@
 #define MERRMISM   "Invalid number of primer mismatches"
 #define ERRMAXF    29
 #define MERRMAXF   "Invalid absolute maximum flow value"
+#define ERRLEN     30
+#define MERRLEN    ": length exceeds maximum"
 #define UNKNOWN    "Unknown error"
 
 // elimination/truncation criteria
@@ -215,6 +221,10 @@
 #define DNOFLOW    "Four consecutive flows below min."
 #define NA         "n/a"
 #define TOTAL      "Total\n"
+#define FILHEAD    "Read\tSample\tPrimer\tOutcome\tCriterion\tLength before\tLength after\n"
+#define NEITHER    "Passed"
+#define ELIML      "Eliminated"
+#define TRUNCL     "Truncated"
 
 // structs
 typedef struct read {

@@ -6,7 +6,7 @@ This program can both filter and denoise reads produced by
 This file describes the usage and parameters of the program
   in great detail.  
 
-Parameter names are subject to change -- check ./flowclus -h
+Parameter names are subject to change -- check ./FlowClus -h
   for the latest.
 
 
@@ -53,10 +53,12 @@ Required parameter:
          Lines for mid tags should begin with "midtag", followed
            by the name of the sample and the sequence.  They
            should be listed following the primer with which
-           they were used.
+           they were used.  The sample names should NOT include
+           a space or a hyphen (' ' or '-').  This may cause an
+           error if the filtering and denoising steps are run
+           separately.
          The sequences can contain IUPAC ambiguous DNA codes,
-           but should not use regular expressions
-           (i.e. use "R", not "[AG]" or "(A|G)" or ".").
+           but should not use regular expressions.
          Here is a sample master file for an amplicon sequenced
            bidirectionally from its two primers (341F and 926R)
            generated from two samples (MID12 and MID13):
@@ -89,6 +91,10 @@ Required parameter:
 
 
 Analysis options:
+
+
+  -st  Option to print status updates to stdout while FlowClus
+         is running
 
 
   -a   Option to filter only
@@ -196,8 +202,24 @@ Other input/output files and options:
            tag - primer matches and reads printed for each
            of the primers.  Then a full breakdown of the
            counts for each sample is printed.
-         If a file is not specified, only the basic counts
-           will be printed to stderr.
+
+
+  -cv <str>  Output file for detailed filtering information
+               for each read
+
+         In the output file, each read that matches a mid tag
+           and primer will be listed, along with its status
+           ("Eliminated", "Truncated", or "Passed"), the
+           criterion that resulted in its elimination or
+           truncation, and its length before and after
+           filtering.  If the read is eliminated, its length
+           after filtering will not be listed, and if the
+           read is not truncated, its length before filtering
+           will not be listed.  Note that these lengths
+           include the mid tags and primers, so the output
+           fasta files may contain sequences whose lengths
+           do not exactly match those listed in this file
+           (e.g. if the -x option is specified).
 
 
   -d <str>   Output file for denoising "misses"
@@ -326,13 +348,14 @@ Reads can be filtered based on sequence, quality scores, and
 
 
 NOTE: A given read is either eliminated, truncated, or
-  neither.  A read can be eliminated for only one reason.
-  If multiple criteria would have eliminated a read, the
-  one listed first below is credited with the elimination.
-  Similarly, a read can be truncated for only one reason --
-  the one which left it shortest.  If multiple criteria
-  would have truncated a read at the same position, the one
-  listed first below is credited with the truncation.
+  neither.  If multiple criteria would have eliminated or
+  truncated a read, the criterion credited is the first in the
+  categories listed below (Sequence, Quality Scores, Flowgram).
+  In analyzing the Sequence and Flowgram of a read, it must
+  first pass the min./max. length restrictions.  After this,
+  the sequence/flowgram is examined 5' to 3', and the criterion
+  that is violated first is credited with the elimination or
+  truncation.
 
 
 Sequence Analysis:
@@ -656,6 +679,14 @@ These parameters define the width of the "confidence interval"
            should be one distance for each flow value, from
            0.00 to the maximum specified by -u (or 19.99, by
            default).
+         For asymmetric intervals, each line should contain
+           two positive floating-point distances (comma- or
+           tab-delimited) -- the first for the negative
+           distance, and the second for the positive distance.
+           For example, if the distances for the flow value of
+           0.58 are given as "0.35,0.56", the interval of query
+           flow values will range from 0.23 to 1.14 (assuming
+           -k 1 is specified).
 
 
   -tr  Option to denoise using a trie
@@ -683,4 +714,4 @@ Congratulations.  You made it to the end.  Hopefully this is
   found any bugs, please let me know.
 
 John M. Gaspar (jsh58@unh.edu)
-June 2013
+June 2013 (updated Feb. 2014)
