@@ -1,0 +1,9 @@
+FlowClus
+
+Version 1.1 - June 10, 2014
+  * Includes option for verbose filtering output (-cv).
+  * Allows for asymmetric denoising distances (given
+      in the file specified by the -sd parameter).
+
+Version 1.0 - Jul 2, 2013
+  * First public release on GitHub.

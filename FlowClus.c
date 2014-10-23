@@ -3,7 +3,7 @@
   June 2013 (updated 1/14, 3/14)
 
   This program can both filter and denoise reads
-    produced by 454 pyrosequencing.
+    produced by 454 and Ion Torrent.
 
   For a complete description of the usage and
     parameters, please see the accompanying README.
@@ -23,9 +23,10 @@ void freeMemory(void);
  * Prints usage to stderr.
  */
 void usage(void) {
-  fprintf(stderr, "\n*** For a complete description of the parameters, see the README ***\n");
-  fprintf(stderr, "\nUsage: ./FlowClus %s master.csv [optional parameters]\n\n", MASTERFILE);
-  fprintf(stderr, "Required parameters:\n");
+  fprintf(stderr, "FlowClus (version %s) by John M. Gaspar (jsh58@unh.edu)\n", VERSION);
+  fprintf(stderr, "*** For a complete description of the parameters, see the README ***\n");
+  fprintf(stderr, "Usage: ./FlowClus {%s master.csv} [optional parameters]\n", MASTERFILE);
+  fprintf(stderr, "Required parameter:\n");
   fprintf(stderr, "  %s   Input master file with primer and mid tag sequences\n", MASTERFILE);
   fprintf(stderr, "Optional parameters:\n");
   fprintf(stderr, "  %s  Option to print status updates while running\n", STATUSOPT);
@@ -74,7 +75,6 @@ void usage(void) {
   fprintf(stderr, "  %s   Constant value for denoising\n", CINTER);
   fprintf(stderr, "  %s   Number of distances for denoising\n", ZINTER);
   fprintf(stderr, "  %s  Option to denoise using a trie\n", TRIEOPT);
-  fprintf(stderr, "\n");
 
   freeMemory();
   exit(-1);
@@ -148,6 +148,8 @@ int error(char* val, int err) {
     msg = MERRMAXF;
   else if (err == ERRLEN)
     msg = MERRLEN;
+  else if (err == ERRCARR)
+    msg = MERRCARR;
   else
     msg = UNKNOWN;
 
@@ -289,7 +291,7 @@ void mergeSort(Primer* p, Cluster* dummy) {
   dummy->next = p->head;
   int len = clusSize(p);
 
-  Cluster* last;
+  Cluster* last = NULL;
   for (int i = 1; i < len; i *= 2) {
     last = dummy;
     Cluster* c = last->next;
@@ -1174,7 +1176,7 @@ void printIrreg(FILE* out, Node* n, float* flow,
 
     // print flowgram
     if (denpOpt) {
-      float save;
+      float save = 0.0f;
       if (midOpt) {
         save = flow[0];
         flow[0] += strlen(r->mid->prim->seq) - strlen(trim);
@@ -1913,7 +1915,7 @@ void loadFlow(char* line, float* flow, int last,
  */
 int loadInd(char* line, int* index, int clipl, int len, int end) {
   char* in = strtok(line, CSV);
-  int ans;
+  int ans = 0;
   for (int i = 0; i < clipl; i++) {
     if (in == NULL)
       exit(error("", ERRLOAD));
@@ -2593,13 +2595,26 @@ void revComp(char* out, char* seq) {
   out[j] = '\0';
 }
 
+/* void strCopy()
+ * Copies the string, checks for \r chars.
+ */
+void strCopy(char* out, char* in) {
+  int i;
+  for (i = 0; in[i] != '\0'; i++) {
+    if (in[i] == '\r')
+      exit(error("", ERRCARR));
+    out[i] = in[i];
+  }
+  out[i] = '\0';
+}
+
 /* char* getMids()
  * Loads mid tags from the given file and saves
  *   them to the given primer.
  */
 char* getMids(FILE* master, Primer* p, int revOpt,
     int* count) {
-  Midtag* prev;
+  Midtag* prev = NULL;
   while (fgets(line, MAX_SIZE, master) != NULL) {
     char* in = strtok(line, CSV);
 
@@ -2618,7 +2633,7 @@ char* getMids(FILE* master, Primer* p, int revOpt,
         m->name = (char*) memalloc(1 + strlen(name));
         m->seq = (char*) memalloc(1 + strlen(seq));
         strcpy(m->name, name);
-        strcpy(m->seq, seq);
+        strCopy(m->seq, seq);
 
         m->next = NULL;
         m->prim = p;
@@ -2734,7 +2749,7 @@ int loadSeqs(FILE* master, char* flowExt, int opt,
     int trieOpt, int revOpt) {
 
   char* in = findPrim(master);
-  Primer* prev;
+  Primer* prev = NULL;
   int count = 0;
   while (in != NULL) {
 
@@ -2758,7 +2773,7 @@ int loadSeqs(FILE* master, char* flowExt, int opt,
     p->name = (char*) memalloc(1 + strlen(name));
     p->seq = (char*) memalloc(1 + strlen(seq));
     strcpy(p->name, name);
-    strcpy(p->seq, seq);
+    strCopy(p->seq, seq);
 
     p->rev = NULL;
     p->first = NULL;

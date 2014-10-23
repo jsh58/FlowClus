@@ -26,11 +26,11 @@ while (i %% 100 != 0 && i < length(repm[1,])) {
 repm <- repm[1:i,1:i]
 
 # create level boundaries -- based on max value
-div <- 8
+div <- 8  # number of boundaries
 z <- max(repm)
 reg <- c(-0.1, 0.1)
 for (j in 1:(div - 1)) {
-  reg <- c(reg, z^(j/div))  # logarithmic: eighth powers
+  reg <- c(reg, z^(j/div))  # logarithmic: <div> powers
 }
 reg <- c(reg, z + 0.1)
 

@@ -46,8 +46,9 @@ while (my $file = shift @ARGV) {
     $order[$x] = -1;
   }
 
+  # get header line
   my $line = <IN>;
-  chomp $line;
+  $line =~ s/[\n\r]//g;
   my @spl = split("\t", $line);
 
   # load order

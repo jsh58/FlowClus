@@ -1,12 +1,13 @@
 FlowClus
 
 This program can both filter and denoise reads produced by
-  454 pyrosequencing.
+  454 and Ion Torrent sequencing technologies.  It was written
+  in C and compiled with gcc (version 4.8.2) on Ubuntu Linux.
 
 This file describes the usage and parameters of the program
   in great detail.  
 
-Parameter names are subject to change -- check ./FlowClus -h
+Parameter names are subject to change -- run ./FlowClus -h
   for the latest.
 
 
@@ -46,7 +47,7 @@ Required parameter:
 
 
   -m <str>   Input master file with primer and mid tag sequences
-              (one per line, comma- or tab-delimited)
+               (one per line, comma- or tab-delimited)
 
          Lines for primers should begin with "primer", followed
            by the name of the primer and its sequence.
@@ -64,12 +65,11 @@ Required parameter:
            generated from two samples (MID12 and MID13):
 
              primer,341F,CCTACGGGAGGCAGCAG
-             midtag,MID12,ATATCGCGAG
-             midtag,MID13,AGACTCGACGT
-
+             midtag,sample1,ATATCGCGAG
+             midtag,sample2,AGACTCGACGT
              primer,926R,CCGTCAATTCMTTTGAGTTT
-             midtag,MID12,AGCACTGTAG
-             midtag,MID13,ACGTCGGGTCT
+             midtag,sample1,AGCACTGTAG
+             midtag,sample2,ACGTCGGGTCT
 
          Note that it is perfectly acceptable to use the same
            sample name with different primers.
@@ -81,9 +81,9 @@ Required parameter:
            sequence (5' to 3', not reverse-complemented):
 
              primer,341F,CCTACGGGAGGCAGCAG
-             midtag,MID12,ATATCGCGAG
-             midtag,MID13,AGACTCGACGT
              reverse,CCGTCAATTCMTTTGAGTTT
+             midtag,sample1,ATATCGCGAG
+             midtag,sample2,AGACTCGACGT
 
 
 
@@ -111,12 +111,21 @@ Analysis options:
   -i <str>   Input sff.txt file
 
          This is the file that is converted from a 454 .sff 
-           file using the 454 Tools program "sffinfo".  It is
-           required in order to perform filtering.
+           file using the 454 Tools program "sffinfo" (results
+           have also been good with sff.txt files produced by
+           the script process_sff.py in QIIME).  It is required
+           in order to perform filtering.
          The label names that are used in the analysis of this
-           file are given in flowclus.h.  If these do not match
+           file are given in FlowClus.h.  If these do not match
            those used in your sff.txt file, they will need to
            be changed accordingly.
+         Filtering can be performed on only one sff.txt file at
+           a time.  You may wish to concatenate multiple .sff
+           files using the 454 Tools program "sfffile" before
+           converting to text and filtering with FlowClus
+           (provided that there are no collisions, among the
+           .sff files, of different samples' sharing mid tag
+           sequences).
 
 
   -f <str>   File extension for the filtered flowgrams
@@ -137,7 +146,7 @@ Analysis options:
            number (if the flow order is irregular).  Then the
            flows will be listed, beginning with the flow of
            the last base of the primer -- this is due to the
-           way the flowgram is denoised by flowclus.  The
+           way the flowgram is denoised by FlowClus.  The
            flowgram will end with the last "good" flow of the
            sequence -- either the flow corresponding to the
            last base, or the flow immediately prior to where
@@ -645,10 +654,10 @@ These parameters define the width of the "confidence interval"
          This parameter defines a constant value (plus or
            minus) for all flow values.
          For example, if "-j 0.50" is specified, the
-           interval for a flow value of 0.93 will range from
-           0.43 to 1.43 (inclusive).  Flow values inside
-           that interval will not be considered sufficiently
-           distinct from 0.93.
+           interval for a flow value of 1.09 will range from
+           0.59 to 1.59 (inclusive).  Flow values inside
+           that interval will not be considered significantly
+           distinct from 1.09.
          The parameter must be strictly positive.  To run
            with a distance of 0, use -j 0.001.
          In essence, the 454 base caller uses a constant

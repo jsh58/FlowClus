@@ -6,6 +6,7 @@
 */
 
 // constants
+#define VERSION    "1.1"  // version of FlowClus
 #define MAX_SIZE   65528  // maximum length (characters) for each line of input
 #define HEADER     20     // maximum header length
 #define NUC        4      // number of nucleotides (ACGT)
@@ -174,6 +175,8 @@
 #define MERRMAXF   "Invalid absolute maximum flow value"
 #define ERRLEN     30
 #define MERRLEN    ": length exceeds maximum"
+#define ERRCARR    31
+#define MERRCARR   "Remove carriage returns from master file"
 #define UNKNOWN    "Unknown error"
 
 // elimination/truncation criteria
