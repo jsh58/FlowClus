@@ -1,4 +1,4 @@
 FlowClus
 ========
 
-Filters and denoises pyrosequenced amplicons
+Filters and denoises sequenced amplicons from Roche-454 or Ion Torrent
