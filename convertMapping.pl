@@ -78,8 +78,8 @@ while (my $file = shift @ARGV) {
 
   # analyze lines
   while ($line = <IN>) {
-    chomp $line;
     next if (substr($line, 0, 1) eq "#");
+    $line =~ s/[\n\r]//g;
     my @spl = split("\t", $line);
     my $prim = $spl[$order[2]];
 
