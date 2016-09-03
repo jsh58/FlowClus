@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# John M. Gaspar (jsh58@unh.edu)
+# John M. Gaspar (jsh58@wildcats.unh.edu)
 # June 2013
 
 # This program takes a list of mapping files

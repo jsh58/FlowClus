@@ -1,5 +1,5 @@
 /*
-  John M. Gaspar (jsh58@unh.edu)
+  John M. Gaspar (jsh58@wildcats.unh.edu)
   June 2013 (updated 1/14, 3/14)
 
   This program can both filter and denoise reads
@@ -23,7 +23,7 @@ void freeMemory(void);
  * Prints usage to stderr.
  */
 void usage(void) {
-  fprintf(stderr, "FlowClus (version %s) by John M. Gaspar (jsh58@unh.edu)\n", VERSION);
+  fprintf(stderr, "FlowClus (version %s) by John M. Gaspar (jsh58@wildcats.unh.edu)\n", VERSION);
   fprintf(stderr, "*** For a complete description of the parameters, see the README ***\n");
   fprintf(stderr, "Usage: ./FlowClus {%s master.csv} [optional parameters]\n", MASTERFILE);
   fprintf(stderr, "Required parameter:\n");

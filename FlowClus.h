@@ -1,5 +1,5 @@
 /*
-  John M. Gaspar (jsh58@unh.edu)
+  John M. Gaspar (jsh58@wildcats.unh.edu)
   June 2013 (updated 1/14, 3/14)
 
   Header for FlowClus.c

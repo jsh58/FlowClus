@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# John M. Gaspar (jsh58@unh.edu)
+# John M. Gaspar (jsh58@wildcats.unh.edu)
 # Dec. 2013
 
 # FlowClus can be used to denoise Ion Torrent data,

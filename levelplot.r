@@ -1,4 +1,4 @@
-# John M. Gaspar (jsh58@unh.edu)
+# John M. Gaspar (jsh58@wildcats.unh.edu)
 # June 2013
 
 # This script will allow one to visualize the
